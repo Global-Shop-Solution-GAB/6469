@@ -1,0 +1,425 @@
+﻿Program.Sub.ScreenSU.Start
+Gui.frmMain..Create(BaseForm)
+Gui.frmMain..Caption("Form")
+Gui.frmMain..Size(554,320)
+Gui.frmMain..MinX(0)
+Gui.frmMain..MinY(0)
+Gui.frmMain..Position(0,0)
+Gui.frmMain..AlwaysOnTop(False)
+Gui.frmMain..FontName("Tahoma")
+Gui.frmMain..FontSize(8.25)
+Gui.frmMain..ControlBox(True)
+Gui.frmMain..MaxButton(True)
+Gui.frmMain..MinButton(True)
+Gui.frmMain..MousePointer(0)
+Gui.frmMain..Moveable(True)
+Gui.frmMain..Sizeable(True)
+Gui.frmMain..ShowInTaskBar(True)
+Gui.frmMain..TitleBar(True)
+Gui.frmMain.GsGCPunchIn.Create(GsGridControl)
+Gui.frmMain.GsGCPunchIn.Enabled(True)
+Gui.frmMain.GsGCPunchIn.Visible(True)
+Gui.frmMain.GsGCPunchIn.Zorder(0)
+Gui.frmMain.GsGCPunchIn.Size(257,260)
+Gui.frmMain.GsGCPunchIn.Position(6,12)
+Gui.frmMain.GsGCPunchOut.Create(GsGridControl)
+Gui.frmMain.GsGCPunchOut.Enabled(True)
+Gui.frmMain.GsGCPunchOut.Visible(True)
+Gui.frmMain.GsGCPunchOut.Zorder(0)
+Gui.frmMain.GsGCPunchOut.Size(271,257)
+Gui.frmMain.GsGCPunchOut.Position(270,14)
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+V.Global.bConOpen.Declare(Boolean, False)
+V.Global.sRemoteHost.Declare
+V.Global.sRemoteUser.Declare
+V.Global.sRemotePass.Declare
+V.Global.sRemotePort.Declare
+V.Global.sRemotePath.Declare
+V.Global.sLocalFileDir.Declare
+V.Global.sInFile.Declare
+V.Global.sOutFile.Declare
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+'Function.Intrinsic.UI.UsePixels ' Allows you to use Pixels instead of Twips throughout
+F.Intrinsic.Control.Try
+	
+	'These 3 subs will create new upload file
+	F.Intrinsic.Control.CallSub(CreateDirectory)
+	F.Intrinsic.Control.CallSub(CheckChanges)
+	F.Intrinsic.Control.CallSub(CreateExport)
+	'Set global variables w Credentials
+	F.Intrinsic.Control.CallSub(GetSFTPSettings)
+	'Login to SFTP remote server 
+	F.Intrinsic.Control.CallSub(SFTPUpload)
+	
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.ErrorMsg.Start
+V.Local.sError.Declare
+
+F.Intrinsic.Control.If(V.Global.bConOpen)
+	F.ODBC.Connection!con.Close
+F.Intrinsic.Control.EndIf	
+
+'Generic Error message.
+f.Intrinsic.String.Build("Project GCG_6469_PaylocityExport.g2u {0}{0}Subroutine: {1}{0}Error: {2} with Description: {3}", v.Ambient.NewLine, v.Args.CurrentSub, v.Ambient.ErrorNumber, v.Ambient.ErrorDescription, v.Local.sError)
+f.Intrinsic.UI.Msgbox(v.Local.sError)
+Program.Sub.ErrorMsg.End
+
+Program.Sub.CreateDirectory.Start
+F.Intrinsic.Control.Try
+	V.Local.sDirectory.Declare
+	V.Local.bExists.Declare
+	
+	F.Intrinsic.String.Build("{0}\CUSTOM\6469", V.Caller.GlobalDir, V.Local.sDirectory)
+	F.Intrinsic.File.DirExists(V.Local.sDirectory, V.Local.bExists)
+	F.Intrinsic.Control.If(V.Local.bExists.Not)
+		F.Intrinsic.File.CreateDir(V.Local.sDirectory)
+	F.Intrinsic.Control.EndIf
+	
+	V.Global.sLocalFileDir.Set(V.Local.sDirectory)
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	F.Intrinsic.Control.End
+F.Intrinsic.Control.EndTry
+Program.Sub.CreateDirectory.End
+Program.Sub.CheckChanges.Start
+F.Intrinsic.Control.Try
+	V.Local.sFileContent.Declare
+	V.Local.bExists.Declare
+	V.Local.sSQL.Declare
+	V.Local.sTempStampFile.Declare
+	V.Local.sFormatedTimeStamp.Declare
+	V.Local.sTime.Declare
+	V.Local.sDate.Declare
+
+	'Check for temp stamp file 
+	F.Intrinsic.String.Build("{0}\GCG_6469_TempStamp.txt", V.Caller.FilesDir, V.Local.sTempStampFile)
+	F.Intrinsic.File.Exists(V.Local.sTempStampFile, V.Local.bExists)
+	F.Intrinsic.Control.If(V.Local.bExists)
+		F.ODBC.Connection!con.OpenCompanyConnection
+		V.Global.bConOpen.Set(True)
+		
+		'Read time last run from temp txt file and use it to query table
+		F.Intrinsic.File.File2String(V.Local.sTempStampFile, V.Local.sFormatedTimeStamp)
+		
+		F.Intrinsic.String.Build("select EMPLOYEE, DATE_IN, TIME_IN, 'In' as PUNCH_TYPE, concat(concat(DATE_LAST_CHG, ' '), TIME_LAST_CHG) as LAST_CHG from V_TIME_ATTENDANCE where LAST_CHG >= '{0}'", V.Local.sFormatedTimeStamp, V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtInRecords", "con", V.Local.sSQL, True)
+		F.Data.DataTable.AddColumn("dtInRecords", "TIME_IN_MOD", "String")
+		
+		F.Intrinsic.String.Build("select EMPLOYEE, DATE_OUT, TIME_OUT, 'Out' as PUNCH_TYPE, concat(concat(DATE_LAST_CHG, ' '), TIME_LAST_CHG) as LAST_CHG from V_TIME_ATTENDANCE where LAST_CHG >= '{0}' and DATE_OUT <> '1900-01-01'", V.Local.sFormatedTimeStamp, V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("dtOutRecords", "con", V.Local.sSQL, True)
+		F.Data.DataTable.AddColumn("dtOutRecords", "TIME_OUT_MOD", "String")
+		
+		F.ODBC.Connection!con.Close
+		V.Global.bConOpen.Set(False)
+	
+		'Create Time Stamp txt, w/ 5 min padding & reformat to 24 hr time since doing this changes the style 
+		'Time pad added to account for any out punches that might occur while online update is processing the records that would otherwise be missed without the padding 
+		F.Intrinsic.String.Build("{0} {1}", V.Ambient.Now.FormatYYYY-MM-DD, V.Ambient.Now.FormatHH:MM:SS, V.Local.sFormatedTimeStamp)
+		F.Intrinsic.Date.DateAdd(N, -5, V.Local.sFormatedTimeStamp, V.Local.sFormatedTimeStamp)
+		F.Intrinsic.String.Split(V.Local.sFormatedTimeStamp, " ", V.Local.sFormatedTimeStamp)
+		V.Local.sDate.Set(V.Local.sFormatedTimeStamp(0))
+		F.Intrinsic.String.Build("{0} {1}", V.Local.sFormatedTimeStamp(1), V.Local.sFormatedTimeStamp(2), V.Local.sTime)
+		V.Local.sFormatedTimeStamp.Redim(0, 0)
+		F.Intrinsic.String.Build("{0} {1}", V.Local.sDate.FormatYYYY-MM-DD, V.Local.sTime.FormatHH:MM:SS, V.Local.sFormatedTimeStamp)
+		F.Intrinsic.File.String2File(V.Local.sTempStampFile, V.Local.sFormatedTimeStamp)
+	F.Intrinsic.Control.Else
+		'Means script has not run (or user deleted temp).
+		F.ODBC.Connection!con.OpenCompanyConnection
+		V.Global.bConOpen.Set(True)
+		
+		'Grab all punch in time and attendance records
+		V.Local.sSQL.Set("select EMPLOYEE, DATE_IN, TIME_IN, 'In' as PUNCH_TYPE from V_TIME_ATTENDANCE")
+		F.Data.DataTable.CreateFromSQL("dtInRecords", "con", V.Local.sSQL, True)
+		'Data types won't let you override time column w a string
+		F.Data.DataTable.AddColumn("dtInRecords", "TIME_IN_MOD", "String")
+		
+		'Now grab all punch out time and attendance records 
+		V.Local.sSQL.Set("select EMPLOYEE, DATE_OUT, TIME_OUT, 'Out' as PUNCH_TYPE from V_TIME_ATTENDANCE where DATE_OUT <> '1900-01-01'")
+		F.Data.DataTable.CreateFromSQL("dtOutRecords", "con", V.Local.sSQL, True)
+		F.Data.DataTable.AddColumn("dtOutRecords", "TIME_OUT_MOD", "String")
+		
+		F.ODBC.Connection!con.Close
+		V.Global.bConOpen.Set(False)
+		
+		'Create Time Stamp txt, w/ 5 min padding & reformat to 24 hr time since doing this changes the style 
+		'Time pad added to account for any out punches that might occur while online update is processing the records that would otherwise be missed without the padding 
+		F.Intrinsic.String.Build("{0} {1}", V.Ambient.Now.FormatYYYY-MM-DD, V.Ambient.Now.FormatHH:MM:SS, V.Local.sFormatedTimeStamp)
+		F.Intrinsic.Date.DateAdd(N, -5, V.Local.sFormatedTimeStamp, V.Local.sFormatedTimeStamp)
+		F.Intrinsic.String.Split(V.Local.sFormatedTimeStamp, " ", V.Local.sFormatedTimeStamp)
+		V.Local.sDate.Set(V.Local.sFormatedTimeStamp(0))
+		F.Intrinsic.String.Build("{0} {1}", V.Local.sFormatedTimeStamp(1), V.Local.sFormatedTimeStamp(2), V.Local.sTime)
+		V.Local.sFormatedTimeStamp.Redim(0, 0)
+		F.Intrinsic.String.Build("{0} {1}", V.Local.sDate.FormatYYYY-MM-DD, V.Local.sTime.FormatHH:MM:SS, V.Local.sFormatedTimeStamp)
+		F.Intrinsic.File.String2File(V.Local.sTempStampFile, V.Local.sFormatedTimeStamp)
+	F.Intrinsic.Control.EndIf
+	
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.CheckChanges.End
+Program.Sub.CreateExport.Start
+F.Intrinsic.Control.Try
+	'Subroutine will iterate through the table created from the db time and attendance records passed from previous sub, and format it to match the csv format Paylocity expects 
+	V.Local.i.Declare(Long)
+	V.Local.sTime.Declare
+	V.Local.sHour.Declare
+	
+	F.Intrinsic.String.Build("{0}\InPunches{1}.csv", V.Global.sLocalFileDir, V.Ambient.Now.FormatMMDDYYYYHHMMSS, V.Global.sInFile)
+	F.Intrinsic.String.Build("{0}\OutPunches{1}.csv", V.Global.sLocalFileDir, V.Ambient.Now.FormatMMDDYYYYHHMMSS, V.Global.sOutFile)
+	
+	F.Intrinsic.Control.If(V.DataTable.dtInRecords.RowCount, <>, 0)
+		'Format time from 24 hr format to short time format. Set Column Property doesn't work :)
+		F.Intrinsic.Control.For(V.Local.i, 0, V.DataTable.dtInRecords.RowCount--, 1)
+			F.Intrinsic.String.Left(V.DataTable.dtInRecords(V.Local.i).TIME_IN!FieldVal, 5, V.Local.sTime)
+			F.Intrinsic.Control.If(V.Local.sTime.Left2, >, 12)
+				F.Intrinsic.Math.Sub(V.Local.sTime.Left2, 12, V.Local.sHour)
+				F.Intrinsic.String.Replace(V.Local.sTime, V.Local.sTime.Left2, V.Local.sHour, V.Local.sTime)
+				F.Intrinsic.String.Build("{0}pm", V.Local.sTime, V.Local.sTime)
+			F.Intrinsic.Control.ElseIf(V.Local.sTime.Left2, =, 0)
+				F.Intrinsic.String.Replace(V.Local.sTime, "00", "12", V.Local.sTime)
+				F.Intrinsic.String.Build("{0}am", V.Local.sTime, V.Local.sTime)
+			F.Intrinsic.Control.ElseIf(V.Local.sTime.Left2, =, 12)
+				F.Intrinsic.String.Build("{0}pm", V.Local.sTime, V.Local.sTime)
+			F.Intrinsic.Control.Else
+				F.Intrinsic.String.Build("{0}am", V.Local.sTime, V.Local.sTime)
+			F.Intrinsic.Control.EndIf
+			'Trim leading zero
+			F.Intrinsic.Control.If(V.Local.sTime.Left1, =, 0)
+				F.Intrinsic.String.Right(V.Local.sTime, 6, V.Local.sTime)
+			F.Intrinsic.Control.EndIf
+			
+			F.Data.DataTable.SetValue("dtInRecords", V.Local.i, "TIME_IN_MOD", V.Local.sTime)
+		F.Intrinsic.Control.Next(V.Local.i)
+		
+		'Grid View for In
+		gui.frmMain.GsGCPunchIn.AddGridviewFromDatatable("gvInRecords", "dtInRecords")
+		gui.frmMain.GsGCPunchIn.MainView("gvInRecords")
+		
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "DATE_IN", "DisplayCustomDateTime", "d")
+		'gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "TIME_IN", "DisplayCustomDateTime", "t")
+		
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "TIME_IN", "Visible", False)
+		
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "EMPLOYEE", "VisibleIndex", 0)
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "DATE_IN", "VisibleIndex", 1)
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "TIME_IN_MOD", "VisibleIndex", 2)
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "PUNCH_TYPE", "VisibleIndex", 3)
+		
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "EMPLOYEE", "Caption", "EE ID")
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "DATE_IN", "Caption", "Punch Date")
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "TIME_IN_MOD", "Caption", "Punch Time")
+		gui.frmMain.GsGCPunchIn.SetColumnProperty("gvInRecords", "PUNCH_TYPE", "Caption", "Punch Type")
+		
+		gui.frmMain.GsGCPunchIn.Export(V.Global.sInFile, "csv")
+	F.Intrinsic.Control.EndIf
+	
+	F.Intrinsic.Control.If(V.DataTable.dtOutRecords.RowCount, <>, 0)
+		F.Intrinsic.Control.For(V.Local.i, 0, V.DataTable.dtOutRecords.RowCount--, 1)
+			F.Intrinsic.String.Left(V.DataTable.dtOutRecords(V.Local.i).TIME_OUT!FieldVal, 5, V.Local.sTime)
+			F.Intrinsic.Control.If(V.Local.sTime.Left2, >, 12)
+				F.Intrinsic.Math.Sub(V.Local.sTime.Left2, 12, V.Local.sHour)
+				F.Intrinsic.String.Replace(V.Local.sTime, V.Local.sTime.Left2, V.Local.sHour, V.Local.sTime)
+				F.Intrinsic.String.Build("{0}pm", V.Local.sTime, V.Local.sTime)
+			F.Intrinsic.Control.ElseIf(V.Local.sTime.Left2, =, 0)
+				F.Intrinsic.String.Replace(V.Local.sTime, "00", "12", V.Local.sTime)
+				F.Intrinsic.String.Build("{0}am", V.Local.sTime, V.Local.sTime)
+			F.Intrinsic.Control.ElseIf(V.Local.sTime.Left2, =, 12)
+				F.Intrinsic.String.Build("{0}pm", V.Local.sTime, V.Local.sTime)
+			F.Intrinsic.Control.Else
+				F.Intrinsic.String.Build("{0}am", V.Local.sTime, V.Local.sTime)
+			F.Intrinsic.Control.EndIf
+			'Trim leading zero
+			F.Intrinsic.Control.If(V.Local.sTime.Left1, =, 0)
+				F.Intrinsic.String.Right(V.Local.sTime, 6, V.Local.sTime)
+			F.Intrinsic.Control.EndIf
+			
+			F.Data.DataTable.SetValue("dtOutRecords", V.Local.i, "TIME_OUT_MOD", V.Local.sTime)
+		F.Intrinsic.Control.Next(V.Local.i)
+	
+		'Grid View for Out
+		gui.frmMain.GsGCPunchOut.AddGridviewFromDatatable("gvInRecords", "dtOutRecords")
+		gui.frmMain.GsGCPunchOut.MainView("gvInRecords")
+		
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "DATE_OUT", "DisplayCustomDateTime", "d")
+		'gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "TIME_IN", "DisplayCustomDateTime", "t")
+		
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "TIME_OUT", "Visible", False)
+		
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "EMPLOYEE", "VisibleIndex", 0)
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "DATE_OUT", "VisibleIndex", 1)
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "TIME_OUT_MOD", "VisibleIndex", 2)
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "PUNCH_TYPE", "VisibleIndex", 3)
+		
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "EMPLOYEE", "Caption", "EE ID")
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "DATE_OUT", "Caption", "Punch Date")
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "TIME_OUT_MOD", "Caption", "Punch Time")
+		gui.frmMain.GsGCPunchOut.SetColumnProperty("gvInRecords", "PUNCH_TYPE", "Caption", "Punch Type")
+		
+		gui.frmMain.GsGCPunchOut.Export(V.Global.sOutFile, "csv")
+	F.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.CreateExport.End
+
+Program.Sub.GetSFTPSettings.Start
+F.Intrinsic.Control.Try
+	V.Local.bTableExist.Declare
+	V.Local.sTemp.Declare
+	V.Local.baValue.Declare(ByteArray)
+
+	'Verify Custom table w SFTP settings exists, and that it has credentials in it 
+	F.ODBC.Connection!con.OpenCommonConnection
+	V.Global.bConOpen.Set(True)
+	F.ODBC.Connection!con.TableExists("GCG_6469_SETTINGS", V.Local.bTableExist)
+	F.Intrinsic.Control.If(V.Local.bTableExist)
+		F.Data.DataTable.CreateFromSQL("dtSFTPSettings", "con", "select * from GCG_6469_SETTINGS")
+		F.Intrinsic.Control.If(V.DataTable.dtSFTPSettings.RowCount, =, 0)
+			F.Intrinsic.UI.Msgbox("No SFTP credential settings found. Please configure by logging in as SUPERVSR user and navigating to System Support > Administration > 6469 SFTP Credentials Maintenance.", "Warning")
+			F.Intrinsic.Control.End
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Else
+		F.Intrinsic.UI.Msgbox("Table GCG_6469_SETTINGS does not exist. Configure SFTP settings by logging in as SUPERVSR user and navigating to System Support > Administration > 6469 SFTP Credentials Maintenance.", "Warning")
+		F.Intrinsic.Control.End
+	F.Intrinsic.Control.EndIf
+	
+	'Grab credentials and set to global variables 
+	V.Local.sTemp.Set(V.DataTable.dtSFTPSettings(0).REMOTEHOST!FieldValTrim)
+	F.Intrinsic.String.ConvertString2BA(V.Local.sTemp, V.Local.baValue)
+	F.Global.Encryption.Decrypt(V.Local.baValue,v.Local.sTemp)
+	V.Global.sRemoteHost.Set(V.Local.sTemp.Trim)
+	
+	V.Local.sTemp.Set(V.DataTable.dtSFTPSettings(0).REMOTEUSER!FieldValTrim)
+	F.Intrinsic.String.ConvertString2BA(V.Local.sTemp, V.Local.baValue)
+	F.Global.Encryption.Decrypt(V.Local.baValue,v.Local.sTemp)
+	V.Global.sRemoteUser.Set(V.Local.sTemp.Trim)
+	
+	V.Local.sTemp.Set(V.DataTable.dtSFTPSettings(0).REMOTEPASSWORD!FieldValTrim)
+	F.Intrinsic.String.ConvertString2BA(V.Local.sTemp, V.Local.baValue)
+	F.Global.Encryption.Decrypt(V.Local.baValue,v.Local.sTemp)
+	V.Global.sRemotePass.Set(V.Local.sTemp.Trim)
+	
+	V.Local.sTemp.Set(V.DataTable.dtSFTPSettings(0).REMOTEPORT!FieldValTrim)
+	F.Intrinsic.String.ConvertString2BA(V.Local.sTemp, V.Local.baValue)
+	F.Global.Encryption.Decrypt(V.Local.baValue,v.Local.sTemp)
+	V.Global.sRemotePort.Set(V.Local.sTemp.Trim)
+	
+	V.Local.sTemp.Set(v.DataTable.dtSFTPSettings(0).REMOTEPATH!FieldValTrim)
+	F.Intrinsic.String.ConvertString2BA(V.Local.sTemp, V.Local.baValue)
+	F.Global.Encryption.Decrypt(V.Local.baValue,v.Local.sTemp)
+	V.Global.sRemotePath.Set(V.Local.sTemp.Trim)
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.GetSFTPSettings.End
+
+Program.Sub.SFTPUpload.Start
+F.Intrinsic.Control.Try
+	V.Local.bConnected.Declare(Boolean)
+	V.Local.iUser.Declare(Long)
+	v.Local.iCnt.Declare(Long)
+	V.Local.sSenderEmail.Declare(String)
+	V.Local.sRecipientEmail.Declare(String)
+	V.Local.sSender.Declare(String)
+	V.Local.sFiles.Declare
+	V.Local.i.Declare
+	V.Local.sFileTemplate.Declare
+	V.Local.sLocalFilePath.Declare
+	V.Local.sTemp.Declare
+	'F.Intrinsic.Control.AddEventHandler("SFTPDirList", "Listdir")
+	
+	F.Communication.SFTP.SetProperty("SSHAcceptServerAuthentication","true")
+	F.Communication.SFTP.SetProperty("remoteHost", V.Global.sRemoteHost)
+	F.Communication.SFTP.SetProperty("User", V.Global.sRemoteUser)
+	F.Communication.SFTP.SetProperty("Password", V.Global.sRemotePass)
+	F.Communication.SFTP.SetProperty("remotePort", V.Global.sRemotePort)
+	F.Communication.SFTP.SetProperty("remotePath", V.Global.sRemotePath)
+	
+	
+	F.Intrinsic.Control.Try
+		F.Communication.SFTP.Logon
+		'F.Communication.SFTP.SetProperty("RemoteFile", "InPunches.csv")
+		'F.Communication.SFTP.SetProperty("LocalFile", V.Global.sLocalFileDir)
+		'F.Communication.SFTP.SetProperty("TransferMode", 2)
+		
+		F.Communication.SFTP.SetProperty("Overwrite", true)
+		'F.Communication.SFTP.Upload
+		
+		'Begin reading all files in Custom Directory, filter only csvs, check for correct name format, & delete them as they are successfully uploaded
+		F.Intrinsic.String.Build("{0}\*.csv", V.Global.sLocalFileDir, V.Local.sFileTemplate)
+		F.Intrinsic.File.GetFileList(V.Local.sFileTemplate, V.Local.sFiles)
+		F.Intrinsic.String.Split(V.Local.sFiles, ":", V.Local.sFiles)
+		F.Intrinsic.Control.For(V.Local.i, 0, V.Local.sFiles.UBound, 1)
+			F.Intrinsic.String.RegExMatch(V.Local.sFiles(V.Local.i), "(In|Out)Punches\d\d\d\d\d\d\d\d\d\d\d\d\d\d.csv", , V.Local.sTemp)
+			F.Intrinsic.String.Split(V.Local.sTemp, "*!*", V.Local.sTemp)
+			
+			F.Intrinsic.Control.If(V.Local.sTemp.UBound, <>, 0)
+				F.Communication.SFTP.SetProperty("RemoteFile", V.Local.sTemp(1).Trim)
+				F.Intrinsic.String.Build("{0}\{1}", V.Global.sLocalFileDir, V.Local.sTemp(1).Trim, V.Local.sLocalFilePath)
+				F.Communication.SFTP.SetProperty("LocalFile", V.Local.sLocalFilePath)
+				F.Communication.SFTP.Upload
+				F.Intrinsic.File.DeleteFile(V.Local.sLocalFilePath)
+			F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.Next(V.Local.i)
+	
+	F.Intrinsic.Control.Catch
+		F.Communication.SFTP.Logoff
+		F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+		F.Intrinsic.Control.DoUntil(V.Local.iCnt,=,4)
+			F.Communication.SFTP.Logon
+			
+			F.Communication.SFTP.ReadProperty("connected", V.Local.bConnected)
+			F.Intrinsic.Control.If(V.Local.bConnected,=,True)
+				
+				F.Communication.SFTP.SetProperty("remotePath", V.Global.sRemotePath)
+				'F.Communication.SFTP.ListDirectory
+				
+'				F.Intrinsic.Control.If(V.Global.sListDirDone,=,"Y")
+'					F.Communication.SFTP.DeleteFile("*.output")
+'				F.Intrinsic.Control.EndIf
+'				F.Intrinsic.Control.ExitSub
+				
+			F.Intrinsic.Control.Else
+				F.Intrinsic.UI.Sleep(2)
+				F.Intrinsic.Math.Add(V.Local.iCnt,1,V.Local.iCnt)
+			F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.Loop
+		F.Communication.SFTP.Logoff
+		
+		F.Intrinsic.Control.End
+'		F.Global.Security.GetUserId("SUPERVSR", V.Caller.CompanyCode, V.Local.iUser)
+'	'	F.Global.Security.GetUserId(V.Caller.User, V.Caller.CompanyCode, V.Local.iUser)
+'		F.Global.Security.GetUserEmail("SUPERVSR", V.Caller.CompanyCode, V.Local.sSenderEmail)
+'		F.Intrinsic.String.Build("{0}*!*Data Import", V.Local.sSenderEmail, V.Local.sSender)
+'		V.Local.sRecipientEmail.Set("cpr-gss-integration@te.com")
+'		'get email command for supervsr
+'		F.Global.Messaging.QueueMessage(V.Caller.CompanyCode, V.Local.iUser, V.Caller.Caller, "GS-CPR Integration Error - Remote Server Connection Failing", V.Local.sSender,V.Local.sRecipientEmail, "The data import has attempted to connect to the remote server 5 times. Each time the connection has failed. Please check the credentials to ensure the information is correct.")
+'		'callsub to try and connect again
+'	'	F.Intrinsic.Control.CallSub(FTPLoginRetry)
+'	'	F.Intrinsic.UI.Msgbox("Connection Failed")
+'	'	F.Intrinsic.Control.End
+'		F.Intrinsic.Control.CallSub(Form_Unload)
+	F.Intrinsic.Control.EndTry
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+F.Intrinsic.Control.EndTry
+Program.Sub.SFTPUpload.End
+
+Program.Sub.Comments.Start
+${$5$}$3.0.0.0$}$1
+${$6$}$bmedina$}$20211012130123478$}$kOipCrsyLBVj2KoSwkcdK23ChxGVcBlEgRCI2oPqq3OI34roJYZmC+O3owM9AWbWLnfpf5TcqiE=
+Program.Sub.Comments.End
